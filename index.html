@@ -1,0 +1,87 @@
+{% extends "base.html" %} {% block content %}
+<section class="panel highlight">
+  <div class="panel-header">
+    <h1>Total Balance</h1>
+    <div class="total">{{ '%.2f'|format(total) }}</div>
+    <div class="sub">This month: <strong>{{ month }}</strong></div>
+  </div>
+  <div class="accounts-grid">
+    {% for a in per_accounts %}
+    <div class="tile">
+      <div class="tile-title">{{ a.name }}</div>
+      <div class="tile-sub">{{ a.type }} • {{ a.currency }}</div>
+      <div class="tile-amount">{{ '%.2f'|format(a.balance) }}</div>
+      <a
+        href="{{ url_for('transactions') }}?account_id={{ a.id }}"
+        class="btn btn-primary btn-lg full"
+        >View Transactions</a
+      >
+    </div>
+    {% else %}
+    <div class="empty">No accounts yet — add one in Accounts.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="grid-3">
+  <div class="panel">
+    <h2>This Month</h2>
+    <div class="kpis">
+      <div class="kpi">
+        <div class="kpi-label">Income</div>
+        <div class="kpi-value good">{{ '%.2f'|format(income) }}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Spent</div>
+        <div class="kpi-value bad">{{ '%.2f'|format(spent) }}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Net</div>
+        <div class="kpi-value">{{ '%.2f'|format(income - spent) }}</div>
+      </div>
+    </div>
+    <a href="{{ url_for('transactions') }}" class="btn btn-outline btn-lg full"
+      >Add Transaction</a
+    >
+  </div>
+
+  <div class="panel">
+    <h2>Top Categories</h2>
+    <ul class="list">
+      {% for r in top_cats %}
+      <li class="list-row">
+        <span>{{ r['category'] or 'Uncategorized' }}</span>
+        <strong>{{ '%.2f'|format(r['total']) }}</strong>
+      </li>
+      {% else %}
+      <li class="empty">No expenses this month.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h2>Budgets</h2>
+    <ul class="list">
+      {% for b in budgets %}
+      <li class="list-row">
+        <span>{{ b.category }}</span>
+        <div class="progress">
+          <div
+            class="bar"
+            style="width: {{ (b.spent / b.limit * 100) if b.limit else 0 }}%"
+          ></div>
+        </div>
+        <strong
+          >{{ '%.2f'|format(b.spent) }} / {{ '%.2f'|format(b.limit) }}</strong
+        >
+      </li>
+      {% else %}
+      <li class="empty">No budgets set.</li>
+      {% endfor %}
+    </ul>
+    <a href="{{ url_for('budgets') }}" class="btn btn-primary btn-lg full"
+      >Manage Budgets</a
+    >
+  </div>
+</section>
+{% endblock %}

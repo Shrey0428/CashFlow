@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cashflow</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='styles.css') }}"
+    />
+  </head>
+  <body>
+    <header class="appbar">
+      <div class="brand">💸 Cashflow</div>
+      <nav class="tabs">
+        <a
+          class="tab{% if request.endpoint=='index' %} active{% endif %}"
+          href="{{ url_for('index') }}"
+          >Dashboard</a
+        >
+        <a
+          class="tab{% if request.endpoint=='accounts' %} active{% endif %}"
+          href="{{ url_for('accounts') }}"
+          >Accounts</a
+        >
+        <a
+          class="tab{% if request.endpoint=='transactions' %} active{% endif %}"
+          href="{{ url_for('transactions') }}"
+          >Transactions</a
+        >
+        <a
+          class="tab{% if request.endpoint=='budgets' %} active{% endif %}"
+          href="{{ url_for('budgets') }}"
+          >Budgets</a
+        >
+        <a class="tab" href="{{ url_for('export_csv') }}">Export</a>
+      </nav>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %} {% if
+    messages %}
+    <div class="flash">
+      {% for category, message in messages %}
+      <div class="flash-item {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+    {% endif %} {% endwith %}
+
+    <main class="page">{% block content %}{% endblock %}</main>
+  </body>
+</html>
