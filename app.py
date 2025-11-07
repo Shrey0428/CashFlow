@@ -194,8 +194,12 @@ st.title("💸 Cashflow")
 
 with st.sidebar:
     st.header("Navigation")
-   page = st.radio("Go to",["Dashboard", "Accounts", "Transactions", "Budgets", "Reports / Export", "Logs (Edit)"],label_visibility="collapsed")
-    st.divider()
+    page = st.radio(
+    "Go to",
+    ["Dashboard", "Accounts", "Transactions", "Budgets", "Reports / Export", "Logs (Edit)"],
+    label_visibility="collapsed"
+)
+
     st.caption("Tips: Use the Transactions tab to add entries or rollback mistakes.")
 
 if page == "Dashboard":
