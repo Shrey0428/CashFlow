@@ -166,13 +166,35 @@ def export_transactions_csv(include_voided=False) -> bytes:
             df = pd.read_sql_query("SELECT * FROM transactions ORDER BY booked_at DESC, id DESC", conn)
     return df.to_csv(index=False).encode("utf-8")
 
+def get_account_maps():
+    """Returns (id_to_name, name_to_id)."""
+    df = get_accounts_df()
+    id_to_name = dict(zip(df["id"], df["name"])) if not df.empty else {}
+    name_to_id = {v: k for k, v in id_to_name.items()}
+    return id_to_name, name_to_id
+
+def update_transaction(tx_id: int, **fields):
+    """Dynamically update a transaction row by id. Ignores unknown/None fields."""
+    allowed = {"account_id","type","amount","category","merchant","memo","booked_at","transfer_account_id","voided","voided_at"}
+    sets, params = [], []
+    for k, v in fields.items():
+        if k in allowed and v is not None:
+            sets.append(f"{k}=?")
+            params.append(v)
+    if not sets:
+        return False
+    params.append(tx_id)
+    with db() as conn:
+        conn.execute(f"UPDATE transactions SET {', '.join(sets)} WHERE id=?", params)
+    return True
+
 # ---------------- UI (no custom CSS) ----------------
 init_db()
 st.title("💸 Cashflow")
 
 with st.sidebar:
     st.header("Navigation")
-    page = st.radio("Go to", ["Dashboard", "Accounts", "Transactions", "Budgets", "Reports / Export"], label_visibility="collapsed")
+   page = st.radio("Go to",["Dashboard", "Accounts", "Transactions", "Budgets", "Reports / Export", "Logs (Edit)"],label_visibility="collapsed")
     st.divider()
     st.caption("Tips: Use the Transactions tab to add entries or rollback mistakes.")
 
