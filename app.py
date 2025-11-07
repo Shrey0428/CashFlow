@@ -358,3 +358,205 @@ elif page == "Reports / Export":
         st.download_button("Export including voided (CSV)", export_transactions_csv(include_voided=True), file_name="transactions_with_voided.csv", mime="text/csv")
     else:
         st.info("No transactions recorded yet.")
+
+elif page == "Logs (Edit)":
+    st.subheader("Transactions — View & Edit")
+    st.caption("Tip: You can edit amount, type, account, category, merchant, memo, date, and transfer target. Use the Save button to persist.")
+
+    accs = get_accounts_df()
+    if accs.empty:
+        st.warning("Create an account first in the Accounts page.")
+    else:
+        id_to_name, name_to_id = get_account_maps()
+
+        # Load ALL transactions (including voided if you want—toggle below)
+        include_voided = st.checkbox("Show voided", value=False)
+        base_filters = {}
+        df_all = transactions_df(base_filters)
+        if include_voided:
+            with db() as conn:
+                df_all = pd.read_sql_query("SELECT * FROM transactions ORDER BY booked_at DESC, id DESC", conn)
+
+        if df_all.empty:
+            st.info("No transactions yet.")
+        else:
+            # Present friendly columns for editing
+            edit_df = df_all.copy()
+
+            # Map account ids to names for selection
+            edit_df["account"] = edit_df["account_id"].map(id_to_name).fillna("")
+            edit_df["transfer_to"] = edit_df["transfer_account_id"].map(id_to_name).fillna("")
+            # Show booked_at as date for nicer editing; keep original in hidden column
+            # (Streamlit will keep string if left alone; we'll coerce on save)
+            # Keep an immutable id column visible
+            edit_df = edit_df[[
+                "id","type","amount","account","transfer_to","category","merchant","memo","booked_at","voided"
+            ]]
+
+            # Configure editor widgets
+            type_options = ["EXPENSE","INCOME","TRANSFER"]
+            account_options = accs["name"].tolist()
+
+            edited = st.data_editor(
+                edit_df,
+                use_container_width=True,
+                num_rows="dynamic",
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True),
+                    "type": st.column_config.SelectboxColumn("Type", options=type_options),
+                    "amount": st.column_config.NumberColumn("Amount", step=0.01, format="%.2f"),
+                    "account": st.column_config.SelectboxColumn("Account", options=account_options),
+                    "transfer_to": st.column_config.SelectboxColumn("Transfer to", options=[""] + account_options, help="Required when Type=TRANSFER; blank otherwise."),
+                    "category": st.column_config.TextColumn("Category"),
+                    "merchant": st.column_config.TextColumn("Merchant"),
+                    "memo": st.column_config.TextColumn("Memo"),
+                    "booked_at": st.column_config.TextColumn("Date (YYYY-MM-DD)", help="YYYY-MM-DD"),
+                    "voided": st.column_config.CheckboxColumn("Voided")
+                },
+                hide_index=True,
+                key="editor_transactions"
+            )
+
+            # Save changes
+            if st.button("Save changes", type="primary"):
+                updates = 0
+                errors = []
+                # Compare row-by-row by ID
+                orig_by_id = {int(r["id"]): r for _, r in df_all.iterrows()}
+                for _, row in edited.iterrows():
+                    try:
+                        tx_id = int(row["id"])
+                        orig = orig_by_id.get(tx_id, None)
+                        if orig is None:
+                            # New row (created via data_editor). Minimal create path: we’ll insert.
+                            # If you don’t want row-creation here, skip/collect error instead.
+                            ttype = str(row["type"]).strip() if row["type"] else "EXPENSE"
+                            acct_name = str(row["account"]).strip()
+                            if not acct_name:
+                                errors.append(f"Row with (new) id=? missing Account.")
+                                continue
+                            account_id = name_to_id.get(acct_name)
+                            if account_id is None:
+                                errors.append(f"Unknown account '{acct_name}' for new row.")
+                                continue
+                            amt = float(row["amount"] or 0.0)
+                            cat = (row["category"] or None)
+                            mer = (row["merchant"] or None)
+                            memo = (row["memo"] or None)
+                            date_str = (row["booked_at"] or date.today().isoformat())
+                            # Transfer handling
+                            transfer_to = None
+                            if ttype == "TRANSFER":
+                                tname = str(row.get("transfer_to") or "").strip()
+                                if not tname:
+                                    errors.append(f"New row: TRANSFER requires 'Transfer to'.")
+                                    continue
+                                transfer_to = name_to_id.get(tname)
+                                if not transfer_to or transfer_to == account_id:
+                                    errors.append(f"New row: invalid transfer target.")
+                                    continue
+                            add_transaction(ttype, account_id, amt, cat, mer, memo, date_str, transfer_to)
+                            updates += 1
+                            continue
+
+                        # Build set of changed fields
+                        changes = {}
+
+                        # Type
+                        new_type = str(row["type"]).strip()
+                        if new_type not in ("EXPENSE","INCOME","TRANSFER"):
+                            errors.append(f"Tx {tx_id}: invalid type '{new_type}'.")
+                            continue
+                        if new_type != orig["type"]:
+                            changes["type"] = new_type
+
+                        # Amount
+                        new_amt = float(row["amount"])
+                        if float(orig["amount"]) != new_amt:
+                            changes["amount"] = new_amt
+
+                        # Account
+                        acct_name = str(row["account"]).strip()
+                        account_id = name_to_id.get(acct_name)
+                        if account_id is None:
+                            errors.append(f"Tx {tx_id}: unknown account '{acct_name}'.")
+                            continue
+                        if int(orig["account_id"]) != int(account_id):
+                            changes["account_id"] = int(account_id)
+
+                        # Transfer target
+                        tname = str(row["transfer_to"] or "").strip()
+                        transfer_id = None
+                        if tname:
+                            transfer_id = name_to_id.get(tname)
+                            if transfer_id is None:
+                                errors.append(f"Tx {tx_id}: unknown transfer account '{tname}'.")
+                                continue
+
+                        # Validate type vs transfer target
+                        if new_type == "TRANSFER":
+                            if not transfer_id:
+                                errors.append(f"Tx {tx_id}: TRANSFER requires 'Transfer to'.")
+                                continue
+                            if transfer_id == account_id:
+                                errors.append(f"Tx {tx_id}: transfer target cannot equal source account.")
+                                continue
+                        else:
+                            transfer_id = None  # normalize
+
+                        # Persist transfer target if changed
+                        orig_transfer = orig["transfer_account_id"]
+                        orig_transfer = int(orig_transfer) if pd.notna(orig_transfer) else None
+                        if transfer_id != orig_transfer:
+                            changes["transfer_account_id"] = transfer_id
+
+                        # Category / merchant / memo
+                        for col in ["category","merchant","memo"]:
+                            new_val = row[col] if row[col] != "" else None
+                            orig_val = orig[col] if pd.notna(orig[col]) else None
+                            if new_val != orig_val:
+                                changes[col] = new_val
+
+                        # Date
+                        date_str = str(row["booked_at"]).strip() if row["booked_at"] else None
+                        if not date_str:
+                            errors.append(f"Tx {tx_id}: Date is required (YYYY-MM-DD).")
+                            continue
+                        # quick sanity check
+                        try:
+                            _ = datetime.fromisoformat(date_str)
+                        except Exception:
+                            # allow YYYY-MM-DD without time
+                            try:
+                                _ = datetime.strptime(date_str, "%Y-%m-%d")
+                            except Exception:
+                                errors.append(f"Tx {tx_id}: invalid date format '{date_str}'. Use YYYY-MM-DD.")
+                                continue
+                        if str(orig["booked_at"]) != date_str:
+                            changes["booked_at"] = date_str
+
+                        # Voided toggle
+                        new_voided = bool(row["voided"])
+                        orig_voided = bool(orig["voided"])
+                        if new_voided != orig_voided:
+                            changes["voided"] = 1 if new_voided else 0
+                            changes["voided_at"] = datetime.utcnow().isoformat() if new_voided else None
+
+                        if changes:
+                            ok = update_transaction(tx_id, **changes)
+                            if ok:
+                                updates += 1
+                        # else: no changes for this row
+                    except Exception as e:
+                        errors.append(f"Tx {row.get('id','?')}: {e}")
+
+                if updates:
+                    st.success(f"Saved {updates} change(s).")
+                else:
+                    st.info("No changes to save.")
+
+                if errors:
+                    with st.expander("Some rows had issues (details)"):
+                        for e in errors:
+                            st.error(e)
+
